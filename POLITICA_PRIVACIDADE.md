@@ -144,4 +144,4 @@ Esta Política de Privacidade está em conformidade com:
 
 ---
 
-**Esta política é válida a partir de:** Dezembro 2024
+**Esta política é válida a partir de:** Janeiro 2025
