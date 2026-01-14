@@ -121,8 +121,8 @@ A data da "Última atualização" no topo desta política indica quando a polít
 
 Se você tiver dúvidas sobre esta Política de Privacidade ou sobre como seus dados são tratados, entre em contato conosco:
 
-**E-mail:** [SEU_EMAIL_AQUI]  
-**Site:** [SEU_SITE_AQUI]
+**E-mail:** caio.fugii@hotmail.com  
+**Site:** https://github.com/CaioFugii
 
 ## 11. Conformidade Legal
 
