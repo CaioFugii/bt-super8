@@ -157,4 +157,25 @@ async function runMigrations() {
       }
     }
   }
+
+  // Migração 6: Criar tabela premium_status
+  try {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS premium_status (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT NOT NULL UNIQUE,
+        is_premium INTEGER NOT NULL DEFAULT 0,
+        purchase_token TEXT,
+        last_verified_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_premium_key ON premium_status(key);
+    `);
+  } catch (error: any) {
+    if (__DEV__) {
+      console.warn('Migration 6 warning:', error);
+    }
+  }
 }

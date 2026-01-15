@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { EventFormat } from '@/domain/types';
 import { eventRepository } from '@/db/repositories/eventRepository';
 import { useEventStore } from '@/state/eventStore';
+import { usePremiumStore } from '@/state/premiumStore';
 import { DEFAULT_TIEBREAK_CRITERIA } from '@/domain/algorithms/ranking';
 import { 
   getTodayDDMMYYYY, 
@@ -13,10 +14,13 @@ import {
   
 } from '@/utils/dateUtils';
 import { SCORE_RULESETS, ScoreRulesetId, DEFAULT_SCORE_RULESET } from '@/domain/scoreRuleset';
+import { PremiumFeature } from '@/domain/premium.features';
+import { UpgradeModal } from '@/components/UpgradeModal';
 
 export default function CreateEventScreen() {
   const router = useRouter();
   const { addEvent } = useEventStore();
+  const { isPremium, loadPremiumStatus } = usePremiumStore();
   
   const [step, setStep] = useState(1);
   const [name, setName] = useState('');
@@ -34,13 +38,22 @@ export default function CreateEventScreen() {
   const [loading, setLoading] = useState(false);
   const [showFormatInfoModal, setShowFormatInfoModal] = useState(false);
   const [selectedFormatInfo, setSelectedFormatInfo] = useState<EventFormat | null>(null);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeTrigger, setUpgradeTrigger] = useState<PremiumFeature | undefined>();
 
-  // Resetar formato se for groups_finals (desabilitado)
+  // Carrega status premium ao montar
   useEffect(() => {
-    if (format === 'groups_finals') {
+    loadPremiumStatus();
+  }, [loadPremiumStatus]);
+
+  // Resetar formato se for groups_finals e usuário não for premium
+  useEffect(() => {
+    if (format === 'groups_finals' && !isPremium) {
       setFormat(null);
+      setUpgradeTrigger(PremiumFeature.GROUPS_FINALS_FORMAT);
+      setShowUpgradeModal(true);
     }
-  }, [format]);
+  }, [format, isPremium]);
 
   const handleNameChange = (value: string) => {
     setName(value);
@@ -105,6 +118,27 @@ export default function CreateEventScreen() {
       }
     }
 
+    // Verifica limite de eventos para usuários gratuitos
+    // IMPORTANTE: Verificar ANTES de criar o evento
+    // Recarrega status premium para garantir que está atualizado
+    await loadPremiumStatus();
+    // Usa o valor atualizado do hook após recarregar
+    const currentIsPremium = usePremiumStore.getState().isPremium;
+    
+    console.log('[Premium] currentIsPremium:', currentIsPremium);
+    if (!currentIsPremium) {
+      const activeEventCount = await eventRepository.countActive();
+      if (__DEV__) {
+        console.log('[Premium] Active events count:', activeEventCount, 'isPremium:', currentIsPremium);
+      }
+      // Se já tem 2 ou mais eventos ativos, bloqueia a criação
+      if (activeEventCount >= 2) {
+        setUpgradeTrigger(PremiumFeature.UNLIMITED_EVENTS);
+        setShowUpgradeModal(true);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const eventDate = parseDDMMYYYY(date);
@@ -133,6 +167,18 @@ export default function CreateEventScreen() {
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUpgradeSuccess = async () => {
+    // Recarrega status premium após compra
+    await loadPremiumStatus();
+    // Se estava tentando criar evento, tenta novamente
+    if (upgradeTrigger === PremiumFeature.UNLIMITED_EVENTS) {
+      // Pequeno delay para garantir que o estado foi atualizado
+      setTimeout(() => {
+        handleCreate();
+      }, 300);
     }
   };
 
@@ -275,16 +321,26 @@ export default function CreateEventScreen() {
           <Text style={styles.sectionTitle}>Escolha o formato</Text>
 
           <TouchableOpacity
-            style={[styles.formatCard, styles.formatCardDisabled]}
+            style={[
+              styles.formatCard,
+              !isPremium && styles.formatCardDisabled,
+              format === 'groups_finals' && styles.formatCardSelected,
+            ]}
             onPress={() => {
-              Alert.alert('Em breve', 'Esta opção estará disponível em breve!');
+              if (!isPremium) {
+                setUpgradeTrigger(PremiumFeature.GROUPS_FINALS_FORMAT);
+                setShowUpgradeModal(true);
+              } else {
+                setFormat('groups_finals');
+              }
             }}
-            disabled={true}
+            disabled={false}
           >
             <View style={styles.formatCardHeader}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <Text style={styles.formatTitle}>Grupos + Finais (Duplas)</Text>
-                <Text style={styles.lockIcon}>🔒</Text>
+                {!isPremium && <Text style={styles.lockIcon}>🔒</Text>}
+                {isPremium && <Text style={styles.premiumBadge}>⭐ Premium</Text>}
               </View>
               <TouchableOpacity
                 onPress={(e) => {
@@ -296,10 +352,12 @@ export default function CreateEventScreen() {
                 <Text style={styles.infoButtonText}>ℹ️</Text>
               </TouchableOpacity>
             </View>
-            <Text style={[styles.formatDescription, styles.formatDescriptionDisabled]}>
+            <Text style={[styles.formatDescription, !isPremium && styles.formatDescriptionDisabled]}>
               8 duplas divididas em 2 grupos. Fase de grupos seguida de semifinais e final.
             </Text>
-            <Text style={styles.comingSoonText}>🚀 Em breve disponível</Text>
+            {!isPremium && (
+              <Text style={styles.comingSoonText}>⭐ Disponível no Premium</Text>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -592,6 +650,16 @@ export default function CreateEventScreen() {
           </View>
         </View>
       </Modal>
+
+      <UpgradeModal
+        visible={showUpgradeModal}
+        onClose={() => {
+          setShowUpgradeModal(false);
+          setUpgradeTrigger(undefined);
+        }}
+        trigger={upgradeTrigger}
+        onPurchaseSuccess={handleUpgradeSuccess}
+      />
     </ScrollView>
   );
 }
@@ -706,6 +774,15 @@ const styles = StyleSheet.create({
   },
   lockIcon: {
     fontSize: 18,
+  },
+  premiumBadge: {
+    fontSize: 12,
+    color: '#00d4ff',
+    fontWeight: '600',
+    backgroundColor: '#16213e',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
   comingSoonText: {
     color: '#00d4ff',

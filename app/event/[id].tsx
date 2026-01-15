@@ -11,7 +11,10 @@ import { calculateRanking, calculateIndividualRanking, DEFAULT_TIEBREAK_CRITERIA
 import { RankingEntry } from '@/domain/types';
 import { formatDateToDDMMYYYY } from '@/utils/dateUtils';
 import { useEventStore } from '@/state/eventStore';
+import { usePremiumStore } from '@/state/premiumStore';
 import { SCORE_RULESETS, DEFAULT_SCORE_RULESET, validateMatchScore, getWalkoverScore, ScoreRulesetId } from '@/domain/scoreRuleset';
+import { PremiumFeature } from '@/domain/premium.features';
+import { UpgradeModal } from '@/components/UpgradeModal';
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -45,6 +48,8 @@ export default function EventDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showFormPairsModal, setShowFormPairsModal] = useState(false);
   const [selectedPlayersForPair, setSelectedPlayersForPair] = useState<number[]>([]);
+  const { isPremium, loadPremiumStatus } = usePremiumStore();
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const handleScoreInput = (text: string, setter: (value: string) => void) => {
     const cleaned = text.replace(/[^0-9]/g, '');
@@ -270,7 +275,19 @@ export default function EventDetailScreen() {
 
 
   const handleShareRanking = async () => {
-    if (!event || ranking.length === 0) return;
+    // Verifica se é premium antes de compartilhar
+    await loadPremiumStatus();
+    const currentIsPremium = usePremiumStore.getState().isPremium;
+    
+    if (!currentIsPremium) {
+      setShowUpgradeModal(true);
+      return;
+    }
+
+    if (!event || ranking.length === 0) {
+      Alert.alert('Aviso', 'Não há ranking para compartilhar ainda.');
+      return;
+    }
 
     try {
       const rankingTitle = event.format === 'rotating' ? 'Ranking Individual' : 'Ranking';
@@ -1125,10 +1142,25 @@ export default function EventDetailScreen() {
                   </Text>
                 </View>
                 <TouchableOpacity
-                  style={[styles.button, styles.buttonSecondary, { marginTop: 16 }]}
+                  style={[
+                    styles.button,
+                    styles.buttonSecondary,
+                    { marginTop: 16 },
+                    !isPremium && styles.buttonPremiumLocked
+                  ]}
                   onPress={handleShareRanking}
                 >
-                  <Text style={styles.buttonTextSecondary}>📤 Compartilhar Ranking</Text>
+                  <View style={styles.shareButtonContent}>
+                    <Text style={[
+                      styles.buttonTextSecondary,
+                      !isPremium && styles.buttonTextPremiumLocked
+                    ]}>
+                      📤 Compartilhar Ranking
+                    </Text>
+                    {!isPremium && (
+                      <Text style={styles.premiumLockIcon}>🔒 Premium</Text>
+                    )}
+                  </View>
                 </TouchableOpacity>
               </>
             )}
@@ -2000,6 +2032,15 @@ export default function EventDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      <UpgradeModal
+        visible={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        trigger={PremiumFeature.SHARE_RANKING}
+        onPurchaseSuccess={async () => {
+          await loadPremiumStatus();
+        }}
+      />
     </View>
   );
 }
@@ -2185,10 +2226,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  shareButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  premiumLockIcon: {
+    fontSize: 12,
+    color: '#00d4ff',
+    fontWeight: '600',
+  },
   buttonTextDisabled: {
-    color: '#9ca3af',
+    color: '#6b7280',
     fontSize: 16,
     fontWeight: '600',
+  },
+  buttonPremiumLocked: {
+    borderColor: '#6b7280',
+    borderStyle: 'dashed',
+    opacity: 0.8,
+  },
+  buttonTextPremiumLocked: {
+    color: '#6b7280',
+  },
+  premiumLockIcon: {
+    fontSize: 16,
   },
   participantsList: {
     gap: 12,

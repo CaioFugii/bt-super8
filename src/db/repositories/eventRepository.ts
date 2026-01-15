@@ -18,6 +18,17 @@ export class EventRepository {
     return result.map(this.parseEvent);
   }
 
+  /**
+   * Conta o número de eventos ativos
+   */
+  async countActive(): Promise<number> {
+    const db = await getDatabase();
+    const result = await db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM events WHERE status = 'active'"
+    );
+    return result?.count || 0;
+  }
+
   async findById(id: number): Promise<Event | null> {
     const db = await getDatabase();
     const result = await db.getFirstAsync<Event>(

@@ -2,19 +2,42 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useEventStore } from '@/state/eventStore';
+import { usePremiumStore } from '@/state/premiumStore';
 import { eventRepository } from '@/db/repositories/eventRepository';
 import { initDatabase } from '@/db/init';
 import { formatDateToDDMMYYYY } from '@/utils/dateUtils';
+import { PremiumFeature } from '@/domain/premium.features';
+import { UpgradeModal } from '@/components/UpgradeModal';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { events, setEvents } = useEventStore();
+  const { isPremium, loadPremiumStatus } = usePremiumStore();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [activeEventCount, setActiveEventCount] = useState(0);
 
   useEffect(() => {
     loadEvents();
+    loadPremiumStatus();
   }, []);
+
+  useEffect(() => {
+    // Atualiza contagem quando eventos mudam
+    if (events.length > 0) {
+      checkEventLimit();
+    }
+  }, [events, isPremium]);
+
+  const checkEventLimit = async () => {
+    try {
+      const count = await eventRepository.countActive();
+      setActiveEventCount(count);
+    } catch (error) {
+      console.error('Error checking event limit:', error);
+    }
+  };
 
   const loadEvents = async (showRefreshing = false) => {
     if (showRefreshing) {
@@ -26,6 +49,9 @@ export default function HomeScreen() {
       await initDatabase();
       const allEvents = await eventRepository.findActive();
       setEvents(allEvents);
+      // Atualiza contagem após carregar eventos
+      const count = await eventRepository.countActive();
+      setActiveEventCount(count);
     } catch (error) {
       console.error('Error loading events:', error);
     } finally {
@@ -39,23 +65,49 @@ export default function HomeScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
       <Text style={styles.title}>Beach Tennis Super 8</Text>
       
-      <TouchableOpacity
-        style={styles.primaryButton}
-        onPress={() => router.push('/create-event')}
-      >
-        <Text style={styles.buttonText}>Criar Evento</Text>
-      </TouchableOpacity>
+      {/* Botão Criar Evento - Oculto quando limite é atingido (versão gratuita) */}
+      {(!isPremium && activeEventCount >= 2) ? null : (
+        <TouchableOpacity
+          style={styles.primaryButton}
+          onPress={() => router.push('/create-event')}
+        >
+          <Text style={styles.buttonText}>Criar Evento</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Banner Premium - Mostra quando limite é atingido */}
+      {!isPremium && activeEventCount >= 2 && (
+        <View style={styles.premiumBanner}>
+          <Text style={styles.premiumBannerTitle}>⭐ Limite de Eventos Atingido</Text>
+          <Text style={styles.premiumBannerText}>
+            Você já criou {activeEventCount} evento(s). Desbloqueie eventos ilimitados com Premium!
+          </Text>
+          <TouchableOpacity
+            style={styles.premiumBannerButton}
+            onPress={() => setShowUpgradeModal(true)}
+          >
+            <Text style={styles.premiumBannerButtonText}>Fazer Upgrade</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Meus Eventos</Text>
+        <Text style={styles.sectionTitle}>
+          Meus Eventos
+          {!isPremium && activeEventCount > 0 && (
+            <Text style={styles.eventCount}> ({activeEventCount}/2)</Text>
+          )}
+        </Text>
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#00d4ff" />
@@ -87,15 +139,42 @@ export default function HomeScreen() {
           ))
         )}
       </View>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Rodapé fixo com botão de Perfil */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.profileButton}
+          onPress={() => router.push('/profile')}
+        >
+          <Text style={styles.profileButtonText}>👤 Perfil</Text>
+        </TouchableOpacity>
+      </View>
+
+      <UpgradeModal
+        visible={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        trigger={PremiumFeature.UNLIMITED_EVENTS}
+        onPurchaseSuccess={async () => {
+          await loadPremiumStatus();
+          await loadEvents();
+        }}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#1a1a2e',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 20,
+    paddingBottom: 100, // Espaço para o rodapé
   },
   title: {
     fontSize: 28,
@@ -162,5 +241,60 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: '#a0d2ff',
     fontSize: 14,
+  },
+  premiumBanner: {
+    backgroundColor: '#16213e',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#00d4ff',
+  },
+  premiumBannerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#00d4ff',
+    marginBottom: 8,
+  },
+  premiumBannerText: {
+    fontSize: 14,
+    color: '#a0d2ff',
+    marginBottom: 12,
+    lineHeight: 20,
+  },
+  premiumBannerButton: {
+    backgroundColor: '#00d4ff',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  premiumBannerButtonText: {
+    color: '#0f3460',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  eventCount: {
+    fontSize: 16,
+    color: '#a0d2ff',
+    fontWeight: 'normal',
+  },
+  footer: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#16213e',
+    backgroundColor: '#0f3460',
+  },
+  profileButton: {
+    backgroundColor: '#16213e',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#00d4ff',
+  },
+  profileButtonText: {
+    color: '#00d4ff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
